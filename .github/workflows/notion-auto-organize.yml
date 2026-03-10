@@ -1,0 +1,19 @@
+name: Notion Auto Organize
+
+on:
+  schedule:
+    # 毎週月曜 09:00 JST = UTC 00:00
+    - cron: '0 0 * * MON'
+  workflow_dispatch:  # 手動実行ボタン
+
+jobs:
+  organize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run auto_organize.js
+        run: node scripts/auto_organize.js
+        env:
+          NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
+          NOTION_PAGE_ID: ${{ secrets.NOTION_PAGE_ID }}

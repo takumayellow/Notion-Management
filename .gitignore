@@ -1,0 +1,43 @@
+# 機密情報・認証情報
+.env
+config/.mcp.json
+config/.env
+*.key
+*.pem
+
+# データファイル
+data/csv/*.csv
+data/temp/*
+data/exports/*
+
+# 出力ファイル
+outputs/*.csv
+outputs/*.log
+
+# 一時ファイル
+*.tmp
+*.log
+page_content.txt
+
+# OS関連
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# エディタ関連
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# バックアップファイル
+*.bak
+*.backup
+
+# ZIPファイル（展開済みのもの）
+*.zip
+
+# 個人情報を含む可能性のあるファイル
+*個人情報*
+*認証情報*
