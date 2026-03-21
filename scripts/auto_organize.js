@@ -390,6 +390,7 @@ async function main() {
 
   // ログ出力
   const logPath = path.join(__dirname, '../outputs/auto_organize_log.jsonl');
+  fs.mkdirSync(path.join(__dirname, '../outputs'), { recursive: true });
   const logEntry = {
     timestamp: new Date().toISOString(),
     totalBlocks: blocks.length,
