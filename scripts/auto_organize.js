@@ -135,8 +135,13 @@ function getSections(blocks) {
 
 /**
  * 末尾から遡って「セクションに属さない plain paragraph の連続」を検出する。
- * 最後の divider の後に H2 があり、その後に H3/bullet/etc がある部分を「整理済み」と判断。
- * その後ろに続く plain paragraphs だけの部分を「未整理ゾーン」とする。
+ *
+ * 判定ロジック（2026-04-19 改訂）:
+ *  - 最後の H2 セクションを基準にする
+ *  - 以下は常に「構造化」扱い: heading_3 / bulleted_list_item / numbered_list_item / toggle / code / child_page / child_database
+ *  - heading_1 は「構造化」扱いしない（貼り付けページ由来の誤 H1 が紛れ込むケースが多いため）
+ *  - paragraph は「直近8ブロック以内に heading_3 があり、かつ key: value か URL の形」のときだけ構造化扱い
+ *    → "："や":" を含むだけでは構造化と判定しない（孤立したフラット貼り付けを取りこぼさない）
  */
 function findUnorganizedZone(blocks) {
   // 最後の H2 の位置を探す
@@ -146,19 +151,38 @@ function findUnorganizedZone(blocks) {
   }
   if (lastH2Idx === -1) return blocks.length; // H2 がなければ全部未整理
 
-  // 最後の H2 以降で、H3 や bullet などの「構造ブロック」が最後にある位置を探す
+  const STRUCT_TYPES = new Set([
+    'heading_3', 'bulleted_list_item', 'numbered_list_item',
+    'toggle', 'code', 'child_page', 'child_database',
+    'quote', 'callout', 'divider', 'column_list',
+  ]);
+
+  // 最後の「構造ブロック」位置
   let lastStructuredIdx = lastH2Idx;
+  // 直近の H3 位置（paragraph を tether するため）
+  let lastH3Idx = -1;
+
   for (let i = lastH2Idx + 1; i < blocks.length; i++) {
     const t = blocks[i].type;
     const text = getText(blocks[i]).trim();
-    if (t === 'heading_3' || t === 'bulleted_list_item' || t === 'numbered_list_item' || t === 'toggle') {
+
+    if (t === 'heading_3') {
+      lastH3Idx = i;
+      lastStructuredIdx = i;
+    } else if (STRUCT_TYPES.has(t)) {
       lastStructuredIdx = i;
     } else if (t === 'paragraph' && text && text.length > 2) {
-      // 構造っぽい paragraph（例: "住所: ..." "電話番号: ..." など）
-      if (/[:：]/.test(text) || text.startsWith('http')) {
+      // paragraph が「構造化」と見なせるのは、直近に H3 があるケースだけ
+      const hasNearbyH3 = lastH3Idx >= 0 && (i - lastH3Idx) <= 8;
+      const looksLikeKV = /^[^\s:：]{1,30}[:：]/.test(text);
+      const isUrl = text.startsWith('http');
+      if (hasNearbyH3 && (looksLikeKV || isUrl)) {
         lastStructuredIdx = i;
       }
+      // H3 からの距離が離れたら tether 無効化
+      if (lastH3Idx >= 0 && (i - lastH3Idx) > 8) lastH3Idx = -1;
     }
+    // heading_1 は無視（構造化扱いしない）
   }
 
   // lastStructuredIdx の次から未整理ゾーン開始
@@ -172,7 +196,9 @@ const SECTION_RULES = [
     section: '💻 開発・API関連',
     keywords: ['github', 'gitlab', 'aws', 'gcp', 'google cloud', 'heroku', 'vercel', 'netlify',
       'api', 'token', 'ssh', 'termius', 'docker', 'cloudflare', 'firebase', 'supabase',
-      'openai', 'anthropic', 'claude', 'hugging face', 'hf_', 'vscode', 'jetbrains', 'npm'],
+      'openai', 'anthropic', 'claude', 'hugging face', 'hf_', 'vscode', 'jetbrains', 'npm',
+      'line', 'チャネルアクセストークン', 'channel access token', 'webhook', 'line bot',
+      'messaging api', 'liff'],
   },
   {
     section: '📧 メールアカウント',
@@ -381,10 +407,25 @@ async function main() {
     await sleep(600);
   }
 
-  // 全ての未整理ブロックを削除（分類不能含む）
-  const allDeleteIds = unorganized.map(b => b.id);
-  console.log(`\n未整理ブロック ${allDeleteIds.length}件 を削除中...`);
-  await deleteBlocks(allDeleteIds);
+  // 分類済みブロックのみ削除（分類不能はページに残す）
+  const classifiedIds = new Set();
+  for (const grps of Object.values(classified)) {
+    for (const g of grps) {
+      for (const id of g.ids) classifiedIds.add(id);
+    }
+  }
+  // 分類済みグループ間の空行ブロックも削除対象
+  const deleteIds = unorganized
+    .filter(b => classifiedIds.has(b.id) || (!getText(b).trim() && classifiedIds.size > 0))
+    .map(b => b.id);
+  // ただし未分類グループに隣接する空行は残す
+  const unclassifiedIds = new Set();
+  for (const g of unclassified) {
+    for (const id of g.ids) unclassifiedIds.add(id);
+  }
+  const safeDeleteIds = deleteIds.filter(id => !unclassifiedIds.has(id));
+  console.log(`\n分類済みブロック ${safeDeleteIds.length}件 を削除中... (未分類 ${unclassified.length}グループはページに残します)`);
+  await deleteBlocks(safeDeleteIds);
 
   console.log(`\n✅ 自動整理完了。(分類: ${groups.length - unclassified.length}グループ, 未分類: ${unclassified.length}グループ)`);
 
